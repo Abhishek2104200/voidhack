@@ -1,0 +1,6 @@
+# /composable-orchestrator/orchestrator_service/requirements.txt
+
+fastapi
+uvicorn[standard]
+pika  # This is the Python client for RabbitMQ
+requests # <-- Add this line

@@ -1,0 +1,6 @@
+# /composable-orchestrator/llm_agent/requirements.txt
+    
+pika
+python-dotenv
+# Added for Groq/Llama 3 integration
+groq

@@ -1,0 +1,4 @@
+# /composable-orchestrator/llm_agent/.gitignore
+    
+.env
+__pycache__/

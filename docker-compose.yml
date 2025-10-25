@@ -1,0 +1,68 @@
+version: '3.9'
+
+services:
+  # 1. The Orchestrator
+  orchestrator:
+    build: ./orchestrator_service
+    container_name: orchestrator_api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./orchestrator_service:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      - message_bus
+    # Add PYTHONUNBUFFERED here too for consistency
+    environment:
+      PYTHONUNBUFFERED: 1
+
+  # 2. The Messaging Bus
+  message_bus:
+    image: rabbitmq:3.10-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  # 3. The Policy Engine (OPA) --- *** Ensure this section is correct *** ---
+  policy_engine:
+    image: openpolicyagent/opa:latest
+    container_name: opa
+    ports:
+      - "8181:8181"
+    # We mount our new policy file into the container
+    volumes:
+      - ./consensus_service/policy.rego:/policy.rego # <-- This line is crucial
+    # We tell OPA to load this file on start-up
+    command: "run --server --addr :8181 /policy.rego" # <-- This command is crucial
+
+  # 4. The Vision/HWR Agent --- *** UPDATED *** ---
+  vision_agent:
+    build: ./vision_hwr_agent
+    container_name: vision_hwr_agent
+    volumes:
+      - ./vision_hwr_agent:/app
+    depends_on:
+      - message_bus
+    restart: on-failure
+    # Force Python to not buffer print statements
+    environment:
+      PYTHONUNBUFFERED: 1
+
+  # 5. The LLM Agent --- *** UPDATED *** ---
+  llm_agent:
+    build: ./llm_agent
+    container_name: llm_agent
+    volumes:
+      - ./llm_agent:/app
+    env_file:
+      - ./llm_agent/.env
+    depends_on:
+      - message_bus
+    restart: on-failure
+    # Force Python to not buffer print statements
+    environment:
+      PYTHONUNBUFFERED: 1
+
+volumes:
+  app:
