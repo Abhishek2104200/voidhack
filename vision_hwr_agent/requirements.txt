@@ -1,5 +1,3 @@
-# /composable-orchestrator/vision_hwr_agent/requirements.txt
-
 pika
 pillow
-pytesseract
+requests

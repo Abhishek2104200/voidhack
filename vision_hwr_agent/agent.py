@@ -2,105 +2,148 @@ import pika
 import json
 import base64
 import io
-import time
-import sys
+import uuid
+import os
+import requests # <-- The library for our new "brain"
 from PIL import Image
-import pytesseract
 
-# --- Agent Setup ---
-AGENT_ID = "HWR_Agent_v1"
-RABBITMQ_HOST = 'message_bus'
-CONSUME_QUEUE = 'evaluation_tasks'
-PUBLISH_QUEUE = 'vision_results' 
+# --- API Setup ---
+# This is read from the Docker environment
+API_KEY = os.getenv('OCR_SPACE_API_KEY')
+if not API_KEY:
+    raise ValueError("OCR_SPACE_API_KEY environment variable not set.")
 
-# --- (FIXED) Robust RabbitMQ Connection ---
-def get_rabbitmq_channel():
-    """Connects to RabbitMQ and returns a channel, retrying on failure."""
-    while True:
-        try:
-            connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
-            channel = connection.channel()
-            # Declare the queues this agent interacts with
-            channel.queue_declare(queue=CONSUME_QUEUE, durable=True)
-            channel.queue_declare(queue=PUBLISH_QUEUE, durable=True)
-            print(" [x] Vision Agent connected to RabbitMQ.")
-            return connection, channel
-        except pika.exceptions.AMQPConnectionError as e:
-            print(f" [!] Vision Agent waiting for RabbitMQ... Retrying in 5s. Error: {e}")
-            time.sleep(5)
+OCR_URL = 'https://api.ocr.space/parse/image'
 
-def perform_ocr(image_b64: str):
+# --- RabbitMQ Connection ---
+RABBITMQ_HOST = 'rabbitmq'
+TASK_QUEUE = 'task_queue'
+VERDICT_QUEUE = 'verdict_queue'
+
+def process_image(image_b64: str, content_type: str) -> dict:
     """
-    Decodes a base64 image and performs OCR using Tesseract.
+    This is the working "brain" from our test.
+    It performs the HWR task using the ocr.space API.
+    """
+    
+    # 1. Get image size (for the 'bounding_box' in our response)
+    try:
+        image_data = base64.b64decode(image_b64)
+        img_pil = Image.open(io.BytesIO(image_data))
+    except Exception as e:
+        print(f"Error decoding image: {e}")
+        return {"error": "Image decoding failed"}
+
+    # --- 2. Vision & HWR Task (ocr.space) ---
+    try:
+        print("Running text recognition with ocr.space API (Engine 2)...")
+        
+        # Build the correct Data URI prefix
+        base64_string_with_prefix = f"data:{content_type};base64,{image_b64}"
+        
+        payload = {
+            'apikey': API_KEY,
+            'language': 'eng',
+            'isOverlayRequired': False,
+            'base64image': base64_string_with_prefix,
+            'OCREngine': 2  # Use the better engine
+        }
+        
+        response = requests.post(OCR_URL, data=payload)
+        response.raise_for_status() 
+        
+        result_json = response.json()
+        
+        if result_json.get('IsErroredOnProcessing'):
+            raise Exception(result_json.get('ErrorMessage'))
+            
+        final_text = result_json['ParsedResults'][0]['ParsedText']
+        avg_confidence = 0.95 # Placeholder
+
+    except Exception as e:
+        print(f"Error during ocr.space API: {e}")
+        return {"error": f"ocr.space API failed: {e}"}
+
+    # 4. Combine results
+    full_box = [0, 0, img_pil.width, img_pil.height] 
+
+    return {
+        "extracted_text": final_text,
+        "bounding_box": full_box, 
+        "agent_confidence": round(avg_confidence, 4)
+    }
+
+# --- This is the RabbitMQ "body" of the agent ---
+
+def on_message_callback(ch, method, properties, body):
+    """
+    This function is called by RabbitMQ for every new task.
     """
     try:
-        image_bytes = base64.b64decode(image_b64)
-        image = Image.open(io.BytesIO(image_bytes))
+        # 1. Parse the incoming task
+        task_data = json.loads(body)
+        task_id = task_data.get('task_id')
+        image_b64 = task_data.get('image_b64')
         
-        text = pytesseract.image_to_string(image)
+        # --- NEW: Get the file type from the task ---
+        # (The Orchestrator will need to add this)
+        file_ext = task_data.get('file_extension', '.png') # default to png
         
-        if not text.strip():
-            return "No text found in image.", 0.30 
+        if file_ext.lower() == ".png":
+            mime_type = "image/png"
+        elif file_ext.lower() in [".jpg", ".jpeg"]:
+            mime_type = "image/jpeg"
+        else:
+            mime_type = "application/octet-stream"
         
-        return text, 0.90 
-        
+        print(f"Received task: {task_id}")
+
+        # 2. Call our working "brain"
+        result = process_image(image_b64, mime_type)
+
+        if "error" in result:
+            print(f"Task {task_id} failed: {result['error']}")
+        else:
+            # 3. Build the final verdict JSON [cite: 28]
+            verdict_json = {
+                "agent_id": "HWR_Agent_v4_OCRSpace",
+                "task_id": task_id,
+                "agent_confidence": result['agent_confidence'],
+                "verdict_data": {
+                    "extracted_text": result['extracted_text'],
+                    "bounding_box": result['bounding_box'],
+                    "ocr_model_used": "ocr.space-API"
+                }
+            }
+            
+            # 4. Send the result back
+            ch.basic_publish(
+                exchange='',
+                routing_key=VERDICT_QUEUE,
+                body=json.dumps(verdict_json)
+            )
+            print(f"Published verdict for task: {task_id}")
+
     except Exception as e:
-        print(f" [!] OCR Error: {e}")
-        return f"Error during OCR: {e}", 0.10
+        print(f"An unexpected error occurred: {e}")
+    
+    ch.basic_ack(delivery_tag=method.delivery_tag)
 
-def process_task(task_message: dict):
-    """Core logic for the agent."""
-    task_id = task_message.get('task_id')
-    print(f" [x] Vision Agent received task {task_id}")
-
-    # 1. Perform OCR
-    if task_message.get('image_b64') == "test":
-        extracted_text, confidence = "This is a placeholder OCR result.", 0.99
-    else:
-        extracted_text, confidence = perform_ocr(task_message.get('image_b64'))
-
-    # 2. Build the Verdict
-    verdict = {
-        "original_task": task_message, 
-        "agent_id": AGENT_ID,
-        "task_id": task_id,
-        "agent_confidence": confidence,
-        "verdict_data": {
-            "extracted_text": extracted_text,
-            "bounding_box": [0, 0, 0, 0], 
-            "ocr_model_used": "Tesseract (pytesseract)"
-        }
-    }
-    print(f" [x] Vision Agent processed task {task_id}. Result: {extracted_text[:20]}...")
-    return verdict
 
 def main():
-    print(f"--- {AGENT_ID} initializing ---")
-    connection, channel = get_rabbitmq_channel()
+    print("Starting Vision/HWR Agent (ocr.space)...")
+    connection = pika.BlockingConnection(
+        pika.ConnectionParameters(host=RABBITMQ_HOST, heartbeat=600, blocked_connection_timeout=300)
+    )
+    channel = connection.channel()
+    channel.queue_declare(queue=TASK_QUEUE, durable=True)
+    channel.queue_declare(queue=VERDICT_QUEUE, durable=True)
+    channel.basic_consume(
+        queue=TASK_QUEUE,
+        on_message_callback=on_message_callback
+    )
 
-    def callback(ch, method, properties, body):
-        try:
-            task_message = json.loads(body)
-            verdict_message = process_task(task_message)
-
-            # Publish the result to the *vision_results* queue
-            channel.basic_publish(
-                exchange='',
-                routing_key=PUBLISH_QUEUE,
-                body=json.dumps(verdict_message),
-                properties=pika.BasicProperties(delivery_mode=2)
-            )
-            # Acknowledge the original message
-            ch.basic_ack(delivery_tag=method.delivery_tag)
-        except Exception as e:
-            print(f" [!] FATAL ERROR in Vision callback: {e}")
-            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
-
-    # Set up the consumer
-    channel.basic_qos(prefetch_count=1) 
-    channel.basic_consume(queue=CONSUME_QUEUE, on_message_callback=callback)
-
-    print(f" [!] Vision Agent waiting for messages on queue '{CONSUME_QUEUE}'. To exit press CTRL+C")
+    print(f"[*] Waiting for messages on queue '{TASK_QUEUE}'. To exit press CTRL+C")
     channel.start_consuming()
 
 if __name__ == '__main__':
@@ -108,7 +151,3 @@ if __name__ == '__main__':
         main()
     except KeyboardInterrupt:
         print('Interrupted')
-        sys.exit(0)
-    except Exception as e:
-        print(f" [!] Vision Agent main loop error: {e}")
-        sys.exit(1)
