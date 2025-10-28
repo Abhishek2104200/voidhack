@@ -7,9 +7,27 @@ import threading # <-- New import for background consumer
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import sys
-
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 # --- Global Task/Audit Log (In-Memory for Hackathon MVP) ---
 TASK_AUDIT_LOG = {}
+
+app = FastAPI(title="Composable Orchestrator")
+
+# Allow frontend dev server origins (change or use ["*"] for quick testing)
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    # "*"  # uncomment for quick local debugging (not recommended in prod)
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # --- Pydantic Data Model for Frontend Input ---
 class EvaluationRequest(BaseModel):
@@ -18,7 +36,6 @@ class EvaluationRequest(BaseModel):
     image_b64: str
     target_question: str
 
-app = FastAPI(title="Composable Orchestrator")
 OPA_URL = "http://policy_engine:8181/v1/data/policy/eval" # Use Docker service name
 
 # --- RabbitMQ Connection Setup (Robust) ---
