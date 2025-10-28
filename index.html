@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Composable Grader Demo</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 2em; background: #f9f9f9; }
+        .container { max-width: 800px; margin: auto; padding: 2em; background: #fff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        h1 { text-align: center; }
+        .form-group { margin-bottom: 1.5em; }
+        label { display: block; margin-bottom: 0.5em; font-weight: 600; }
+        input[type="text"], textarea, input[type="file"] {
+            width: 100%;
+            padding: 0.75em;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box; /* Important for 100% width */
+        }
+        textarea { min-height: 150px; }
+        button {
+            width: 100%;
+            padding: 1em;
+            background: #007aff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        button:disabled { background: #aaa; cursor: not-allowed; }
+        #results { margin-top: 2em; }
+        #status { font-family: monospace; font-size: 1.1em; color: #555; }
+        #result-json {
+            background: #222;
+            color: #32cd32;
+            padding: 1em;
+            border-radius: 4px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        #ocr-text {
+            background: #f4f4f4;
+            color: #444;
+            border: 1px solid #ddd;
+            padding: 1em;
+            border-radius: 4px;
+            margin-top: 1.5em;
+            white-space: pre-wrap; /* Keep line breaks */
+            word-wrap: break-word;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Intelligent Exam Grader</h1>
+
+        <div class="form-group">
+            <label for="exam-id">Exam ID</label>
+            <input type="text" id="exam-id" value="MATH-101">
+        </div>
+
+        <div class="form-group">
+            <label for="target-question">Question Text</label>
+            <input type="text" id="target-question" value="What is the derivative of x^2?">
+        </div>
+
+        <div class="form-group">
+            <label for="rubric-text">Examiner Rubric</label>
+            <textarea id="rubric-text">The answer must state '2x'. Full credit for '2x'. Partial credit for '2'. No credit for anything else.</textarea>
+        </div>
+
+        <div class="form-group">
+            <label for="image-file">Student Answer Sheet (Image)</label>
+            <input type="file" id="image-file" accept="image/*">
+        </div>
+
+        <button id="evaluate-btn">Evaluate</button>
+
+        <div id="results">
+            <h3 id="status-heading" style="display:none;">Status</h3>
+            <div id="status"></div>
+
+            <h4 id="ocr-heading" style="display:none;">Extracted Text (from OCR):</h4>
+            <pre id="ocr-text"></pre>
+            <pre id="result-json"></pre>
+        </div>
+    </div>
+
+    <script>
+        // Get references to all our HTML elements
+        const evalButton = document.getElementById('evaluate-btn');
+        const examIdInput = document.getElementById('exam-id');
+        const questionInput = document.getElementById('target-question');
+        const rubricInput = document.getElementById('rubric-text');
+        const fileInput = document.getElementById('image-file');
+        
+        const statusHeading = document.getElementById('status-heading');
+        const statusDiv = document.getElementById('status');
+        
+        // <-- FIX: YOU WERE MISSING THESE TWO LINES -->
+        const ocrHeading = document.getElementById('ocr-heading');
+        const ocrText = document.getElementById('ocr-text');
+        
+        const resultJson = document.getElementById('result-json');
+
+        // This is the API endpoint from your orchestrator_service/main.py
+        const API_URL = 'http://localhost:8000'; // Port is from docker-compose.yml
+        let pollingInterval;
+
+        // Add a click listener to the button
+        evalButton.addEventListener('click', handleEvaluateClick);
+
+        async function handleEvaluateClick() {
+            // 1. Get all form data
+            const file = fileInput.files[0];
+            const examId = examIdInput.value;
+            const targetQuestion = questionInput.value;
+            const rubricText = rubricInput.value;
+
+            if (!file || !examId || !targetQuestion || !rubricText) {
+                alert("Please fill out all fields and select an image file.");
+                return;
+            }
+
+            // 2. Disable button and show loading status
+            evalButton.disabled = true;
+            evalButton.innerText = "Processing...";
+            statusHeading.style.display = 'block';
+            statusDiv.innerText = "1. Uploading and converting image...";
+            
+            // These lines are correct, but would have failed without the variables above
+            ocrHeading.style.display = 'none';
+            ocrText.innerText = "";
+            resultJson.innerText = "";
+
+            try {
+                // 3. Convert image to Base64 (which the API needs)
+                const imageB64 = await toBase64(file);
+
+                // 4. Construct the JSON payload (must match EvaluationRequest in main.py)
+                const payload = {
+                    exam_id: examId,
+                    rubric_text: rubricText,
+                    image_b64: imageB64.split(',')[1], // Remove the 'data:image/png;base64,' prefix
+                    target_question: targetQuestion
+                };
+
+                // 5. Call the /v1/evaluate endpoint
+                statusDiv.innerText = "2. Submitting job to orchestrator...";
+                const response = await fetch(`${API_URL}/v1/evaluate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API Error: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                const taskId = data.task_id;
+
+                // 6. Start polling for the result
+                statusDiv.innerText = `3. Job queued (Task ID: ${taskId}). Waiting for agents...`;
+                pollForResult(taskId);
+
+            } catch (error) {
+                console.error("Evaluation failed:", error);
+                statusDiv.innerText = `Error: ${error.message}`;
+                evalButton.disabled = false;
+                evalButton.innerText = "Evaluate";
+            }
+        }
+
+        function pollForResult(taskId) {
+            pollingInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`${API_URL}/v1/status/${taskId}`);
+                    const data = await response.json();
+
+                    // Check the status from the TASK_AUDIT_LOG
+                    const jobStatus = data.status;
+                    statusDiv.innerText = `Polling... Current Step: ${data.step}`;
+
+                    // Check if the job is finished (based on policy.rego)
+                    if (jobStatus === "COMPLETE" || jobStatus === "MANUAL_REVIEW" || jobStatus === "ERROR") {
+                        clearInterval(pollingInterval); // Stop polling
+
+                        statusDiv.innerText = `Evaluation Finished! Status: ${jobStatus}`;
+
+                        // This block is also correct and will now work
+                        const ocrResult = data.extracted_text;
+                        if (ocrResult) {
+                            ocrHeading.style.display = 'block';
+                            ocrText.innerText = ocrResult; // Display the OCR text
+                        }
+
+                        // 'data.result' is just the final OPA decision
+                        resultJson.innerText = JSON.stringify(data.result, null, 2); 
+                        
+                        evalButton.disabled = false;
+                        evalButton.innerText = "Evaluate";
+                    }
+                    // if jobStatus is "PENDING", the loop will just continue
+                } catch (error) {
+                    console.error("Polling error:", error);
+                    statusDiv.innerText = "Error while polling for status.";
+                    clearInterval(pollingInterval);
+                    evalButton.disabled = false;
+                    evalButton.innerText = "Evaluate";
+                }
+            }, 2000); // Poll every 2 seconds
+        }
+
+        // Helper function to convert a File object to a Base64 string
+        function toBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = error => reject(error);
+            });
+        }
+    </script>
+</body>
+</html>

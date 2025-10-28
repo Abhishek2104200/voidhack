@@ -4,6 +4,8 @@ import base64
 import io
 import time
 import sys
+import cv2
+import numpy as np
 from PIL import Image
 import pytesseract
 
@@ -31,19 +33,36 @@ def get_rabbitmq_channel():
 
 def perform_ocr(image_b64: str):
     """
-    Decodes a base64 image and performs OCR using Tesseract.
+    Decodes, pre-processes (grayscale, thresholding), and performs OCR.
+    This is much more effective for handwritten text.
     """
     try:
+        # 1. Decode Base64 and convert to an OpenCV image
         image_bytes = base64.b64decode(image_b64)
-        image = Image.open(io.BytesIO(image_bytes))
-        
-        text = pytesseract.image_to_string(image)
-        
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        # 2. --- Image Pre-processing ---
+        # Convert to grayscale
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+        # Apply thresholding (binarization). This turns the image
+        # into pure black and white, which Tesseract loves.
+        # THRESH_OTSU automatically finds the best threshold value.
+        thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+
+        # 3. --- Perform OCR on the PROCESSED image ---
+        # We configure Tesseract to assume a single uniform block of text (--psm 6)
+        custom_config = r'--oem 3 --psm 6'
+        text = pytesseract.image_to_string(thresh, config=custom_config)
+
         if not text.strip():
-            return "No text found in image.", 0.30 
-        
-        return text, 0.90 
-        
+            # This will trigger if the image is truly blank
+            return "No text found in image (after pre-processing).", 0.30 
+
+        # If we found text, we are reasonably confident
+        return text, 0.75 # Lowered confidence as handwriting is hard
+
     except Exception as e:
         print(f" [!] OCR Error: {e}")
         return f"Error during OCR: {e}", 0.10

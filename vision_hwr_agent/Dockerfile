@@ -4,9 +4,10 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Install Tesseract OCR engine
+# Install Tesseract AND OpenCV dependencies
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
+    libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
