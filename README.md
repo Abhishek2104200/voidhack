@@ -72,3 +72,18 @@ These instructions will get a full local development stack running via Docker Co
     * Click **"Begin Evaluation"** and watch the status messages track the task as it moves through the pipeline (Queueing -> Vision -> LLM -> Consensus).
 
 ## 🧩 Project Structure
+
+Standard microservices layout with separate folders for each component:
+
+```bash
+.
+├── consensus_service/
+│   └── policy.rego     # OPA consensus rules (e.g., manual review if confidence < 0.8)
+├── llm_agent/
+│   └── agent.py        # Groq/Llama-3 Grader, consumes Vision result, produces LLM verdict
+├── orchestrator_service/
+│   └── main.py         # FastAPI API, task queuing, and OPA/Consensus handler
+├── vision_hwr_agent/
+│   └── agent.py        # OCR.space integration, consumes task, produces Vision verdict
+├── docker-compose.yml  # Defines all 5 services: Orchestrator, RabbitMQ, OPA, Vision, LLM
+└── index.html          # Simple front-end for task submission and status polling
