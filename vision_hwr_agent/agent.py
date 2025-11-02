@@ -1,21 +1,27 @@
 import pika
 import json
 import base64
-import io
 import time
 import sys
-from PIL import Image
-import pytesseract
+import os       
+import requests 
 
 # --- Agent Setup ---
-AGENT_ID = "HWR_Agent_v1"
+AGENT_ID = "HWR_Agent_v2_OCRSpace_E2" # Using Engine 2
 RABBITMQ_HOST = 'message_bus'
 CONSUME_QUEUE = 'evaluation_tasks'
 PUBLISH_QUEUE = 'vision_results' 
+OCRSPACE_API_KEY = os.getenv('OCRSPACE_API_KEY') 
+OCRSPACE_API_URL = 'https://api.ocr.space/parse/image'
 
 # --- (FIXED) Robust RabbitMQ Connection ---
 def get_rabbitmq_channel():
     """Connects to RabbitMQ and returns a channel, retrying on failure."""
+    if not OCRSPACE_API_KEY:
+        print(" [!] FATAL: OCRSPACE_API_KEY not found in environment.")
+        print(" [!] Please add it to vision_hwr_agent/.env and rebuild.")
+        sys.exit(1)
+        
     while True:
         try:
             connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
@@ -23,7 +29,7 @@ def get_rabbitmq_channel():
             # Declare the queues this agent interacts with
             channel.queue_declare(queue=CONSUME_QUEUE, durable=True)
             channel.queue_declare(queue=PUBLISH_QUEUE, durable=True)
-            print(" [x] Vision Agent connected to RabbitMQ.")
+            print(f" [x] Vision Agent ({AGENT_ID}) connected to RabbitMQ.")
             return connection, channel
         except pika.exceptions.AMQPConnectionError as e:
             print(f" [!] Vision Agent waiting for RabbitMQ... Retrying in 5s. Error: {e}")
@@ -31,22 +37,57 @@ def get_rabbitmq_channel():
 
 def perform_ocr(image_b64: str):
     """
-    Decodes a base64 image and performs OCR using Tesseract.
+    Performs OCR by calling the ocr.space API.
     """
     try:
-        image_bytes = base64.b64decode(image_b64)
-        image = Image.open(io.BytesIO(image_bytes))
+        # 1. Create the payload for the API
+        # --- *** THIS IS THE MODIFIED SECTION *** ---
+        payload = {
+            'apikey': OCRSPACE_API_KEY,
+            'language': 'eng',
+            'isOverlayRequired': False,
+            'base64Image': f"data:image/jpeg;base64,{image_b64}",
+            'OCREngine': 2           # <-- Use the more advanced Engine 2
+            # 'removelines': True <-- THIS WAS THE ERROR. IT IS NOW REMOVED.
+        }
+        # --- *** END OF MODIFIED SECTION *** ---
         
-        text = pytesseract.image_to_string(image)
+        # 2. Make the API request
+        print(f" [>] Calling ocr.space API (Engine 2)...")
+        response = requests.post(OCRSPACE_API_URL, data=payload)
+        response.raise_for_status() # Raise error for bad responses
         
-        if not text.strip():
-            return "No text found in image.", 0.30 
+        result = response.json()
+
+        # 3. Check for API-level errors
+        if result.get('IsErroredOnProcessing'):
+            print(f" [!] OCR.space API Error: {result.get('ErrorMessage')}")
+            # We now correctly get the error message from the API
+            api_error_message = result.get('ErrorMessage', ["Unknown API Error"])[0]
+            return f"API Error: {api_error_message}", 0.10
+
+        # 4. Extract the text
+        parsed_results = result.get('ParsedResults')
+        if not parsed_results:
+            print(" [!] OCR.space: No text found.")
+            return "No text found in image (API).", 0.30
+            
+        text = parsed_results[0].get('ParsedText')
         
-        return text, 0.90 
-        
+        if not text:
+             print(" [!] OCR.space: ParsedText field is empty.")
+             return "No text found in image (API).", 0.30
+
+        print(" [<] OCR.space API call successful.")
+        # We assume the API is highly confident if it returns text
+        return text.strip(), 0.95 
+
+    except requests.exceptions.RequestException as e:
+        print(f" [!] OCR API Request Error: {e}")
+        return f"Error connecting to OCR API: {e}", 0.10
     except Exception as e:
-        print(f" [!] OCR Error: {e}")
-        return f"Error during OCR: {e}", 0.10
+        print(f" [!] OCR General Error: {e}")
+        return f"Error during OCR processing: {e}", 0.10
 
 def process_task(task_message: dict):
     """Core logic for the agent."""
@@ -67,11 +108,11 @@ def process_task(task_message: dict):
         "agent_confidence": confidence,
         "verdict_data": {
             "extracted_text": extracted_text,
-            "bounding_box": [0, 0, 0, 0], 
-            "ocr_model_used": "Tesseract (pytesseract)"
+            "bounding_box": [], # API doesn't provide this by default
+            "ocr_model_used": "ocr.space API (Engine 2)"
         }
     }
-    print(f" [x] Vision Agent processed task {task_id}. Result: {extracted_text[:20]}...")
+    print(f" [x] Vision Agent processed task {task_id}. Result: {extracted_text[:30]}...")
     return verdict
 
 def main():

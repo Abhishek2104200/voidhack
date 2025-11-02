@@ -42,6 +42,8 @@ services:
     container_name: vision_hwr_agent
     volumes:
       - ./vision_hwr_agent:/app
+    env_file:             # <-- ADD THIS LINE
+      - ./vision_hwr_agent/.env # <-- ADD THIS LINE
     depends_on:
       - message_bus
     restart: on-failure

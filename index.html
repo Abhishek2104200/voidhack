@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voidhack Grader</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* --- START: GLOBAL STYLES (Tech Noir Theme) --- */
+        :root {
+            --bg-dark: #0f101a;
+            --bg-glass: rgba(26, 28, 43, 0.7);
+            --border-glass: rgba(255, 255, 255, 0.1);
+            --text-primary: #e0e0e0;
+            --text-secondary: #a0a0b0;
+            --gradient-start: #6f00ff;
+            --gradient-end: #00bfff;
+            --color-green: #28a745;
+            --color-yellow: #ffc107;
+            --color-blue: #007bff;
+            --color-purple: #6f42c1;
+            --color-red: #dc3545;
+        }
+
+        @keyframes gradient-rotate {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            background-color: var(--bg-dark);
+            color: var(--text-primary);
+            overflow-x: hidden;
+            background: linear-gradient(-45deg, var(--bg-dark), #1d102f, var(--bg-dark), #102a2f);
+            background-size: 400% 400%;
+            animation: gradient-rotate 15s ease infinite;
+        }
+
+        /* --- START: SIDEBAR --- */
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            width: 260px;
+            background: var(--bg-glass);
+            backdrop-filter: blur(10px);
+            border-right: 1px solid var(--border-glass);
+            padding: 2em 1.5em;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5em;
+            z-index: 10;
+        }
+
+        .sidebar-header {
+            font-size: 1.5em;
+            font-weight: 700;
+            margin-bottom: 1em;
+        }
+        .sidebar-header span {
+            font-weight: 300;
+            color: var(--text-secondary);
+        }
+
+        .sidebar-link {
+            display: flex;
+            align-items: center;
+            gap: 0.8em;
+            padding: 0.8em 1em;
+            border-radius: 6px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+        .sidebar-link:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+        }
+        .sidebar-link.active {
+            background: linear-gradient(90deg, var(--gradient-start), var(--gradient-end));
+            color: white;
+            box-shadow: 0 4px 15px rgba(111, 0, 255, 0.3);
+        }
+        .sidebar-link svg {
+            width: 20px;
+            height: 20px;
+        }
+        .sidebar-footer {
+            margin-top: auto;
+        }
+        /* --- END: SIDEBAR --- */
+
+
+        /* --- START: MAIN CONTENT --- */
+        .main-content {
+            margin-left: 260px; /* Same as sidebar width */
+            padding: 2em 3em;
+        }
+        
+        /* NEW: Page container for switching */
+        .page-container {
+            display: none; /* Hidden by default */
+        }
+        .page-container.active-page {
+            display: block; /* Shown when active */
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0;
+        }
+        
+        h1 {
+            color: white;
+            font-weight: 700;
+            border-bottom: 1px solid var(--border-glass);
+            padding-bottom: 0.5em;
+            margin-top: 0;
+        }
+        h2 {
+            font-size: 1.8em;
+            font-weight: 600;
+            color: var(--text-primary);
+            border-bottom: none;
+            margin-top: 0;
+        }
+
+        .form-card {
+            background: var(--bg-glass);
+            border: 1px solid var(--border-glass);
+            border-radius: 12px;
+            padding: 2em;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5em;
+        }
+        .form-group {
+            margin-bottom: 0;
+        }
+        .form-group.full-width {
+            grid-column: 1 / -1;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5em;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        input[type="text"], textarea {
+            width: 100%;
+            padding: 0.75em;
+            border: 1px solid var(--border-glass);
+            border-radius: 6px;
+            box-sizing: border-box;
+            background: rgba(0, 0, 0, 0.2);
+            color: var(--text-primary);
+            font-size: 1em;
+        }
+        input[type="text"]:focus, textarea:focus {
+            outline: none;
+            border-color: var(--gradient-end);
+            box-shadow: 0 0 10px rgba(0, 191, 255, 0.3);
+        }
+
+        textarea { min-height: 150px; }
+
+        .drop-zone {
+            width: 100%;
+            height: 150px;
+            border: 2px dashed var(--border-glass);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .drop-zone.hover {
+            border-color: var(--gradient-end);
+            background: rgba(0, 191, 255, 0.1);
+        }
+        .drop-zone-text { pointer-events: none; }
+        .drop-zone-text svg {
+            width: 32px;
+            height: 32px;
+            margin-bottom: 0.5em;
+            stroke: var(--gradient-end);
+        }
+        .drop-zone-preview {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: none;
+        }
+        #image-file { display: none; }
+
+        button {
+            width: 100%;
+            padding: 1em;
+            background: linear-gradient(90deg, var(--gradient-start), var(--gradient-end));
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 20px rgba(111, 0, 255, 0.3);
+        }
+        button:hover {
+            box-shadow: 0 6px 25px rgba(111, 0, 255, 0.5);
+            transform: translateY(-2px);
+        }
+        button:disabled {
+            background: #555;
+            color: #999;
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+        }
+        /* --- END: MAIN CONTENT --- */
+
+
+        /* --- START: RESULTS STYLES (Unchanged) --- */
+        #results { margin-top: 2em; }
+        #status-heading, #ocr-heading { color: var(--text-primary); }
+        #status {
+            font-family: monospace;
+            font-size: 1.1em;
+            color: #00bfff;
+            background: var(--bg-glass);
+            padding: 1em;
+            border-radius: 6px;
+            border: 1px solid var(--border-glass);
+        }
+        #ocr-text {
+            background: #000;
+            color: #eee;
+            border: 1px solid var(--border-glass);
+            padding: 1em;
+            border-radius: 4px;
+            margin-top: 1.5em;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        #evaluation-output {
+            margin-top: 2em;
+            border-top: 1px solid var(--border-glass);
+            padding-top: 1.5em;
+        }
+        .result-grid {
+            display: flex;
+            align-items: flex-start;
+            gap: 2em;
+            margin-top: 1.5em;
+        }
+        .grade-badge {
+            flex-shrink: 0;
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: var(--color-green);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2em;
+            text-align: center;
+            border: 4px solid var(--bg-dark);
+            box-shadow: 0 0 20px rgba(40, 167, 69, 0.5);
+        }
+        .grade-badge span {
+            font-size: 0.8em;
+            font-weight: 300;
+        }
+        .grade-badge strong {
+            font-size: 2.5em;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+        .result-details { flex-grow: 1; }
+        .result-card {
+            background: var(--bg-glass);
+            border: 1px solid var(--border-glass);
+            border-radius: 6px;
+            padding: 1.5em;
+            margin-bottom: 1em;
+        }
+        .result-card.justification {
+            background: rgba(255, 248, 225, 0.1);
+            border-color: rgba(255, 236, 179, 0.2);
+            color: #ffecb3;
+        }
+        .result-card p {
+            margin: 0.5em 0 0 0;
+            font-family: monospace;
+            line-height: 1.6;
+            color: var(--text-primary);
+        }
+        /* --- END: RESULTS STYLES --- */
+
+        /* --- START: NEW ADMIN DASHBOARD STYLES --- */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1.5em;
+        }
+        .stat-card {
+            background: var(--bg-glass);
+            border: 1px solid var(--border-glass);
+            border-radius: 12px;
+            padding: 1.5em;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .stat-card-info h3 {
+            margin: 0;
+            font-size: 1.1em;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        .stat-card-info p {
+            margin: 0.25em 0 0 0;
+            font-size: 2.2em;
+            font-weight: 700;
+            color: white;
+        }
+        .stat-card-icon {
+            font-size: 2em;
+            padding: 0.5em;
+            border-radius: 50%;
+        }
+        .stat-card-icon.green { color: var(--color-green); background: rgba(40, 167, 69, 0.1); }
+        .stat-card-icon.blue { color: var(--color-blue); background: rgba(0, 123, 255, 0.1); }
+        .stat-card-icon.yellow { color: var(--color-yellow); background: rgba(255, 193, 7, 0.1); }
+        
+        .dashboard-grid-charts {
+            display: grid;
+            grid-template-columns: 1.5fr 1fr;
+            gap: 1.5em;
+            margin-top: 1.5em;
+        }
+        
+        .chart-card, .table-card, .list-card {
+            background: var(--bg-glass);
+            border: 1px solid var(--border-glass);
+            border-radius: 12px;
+            padding: 1.5em;
+        }
+        
+        .chart-card h3, .table-card h3, .list-card h3 {
+            margin: 0 0 1.5em 0;
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 300px; /* Give charts a fixed height */
+        }
+        
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .data-table th, .data-table td {
+            padding: 0.8em;
+            text-align: left;
+            border-bottom: 1px solid var(--border-glass);
+        }
+        .data-table th {
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+        .data-table td {
+            color: var(--text-primary);
+        }
+        .data-table tr:last-child td {
+            border-bottom: none;
+        }
+        .status-badge {
+            padding: 0.3em 0.6em;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+        .status-badge.complete {
+            background: rgba(40, 167, 69, 0.2);
+            color: var(--color-green);
+        }
+        .status-badge.review {
+            background: rgba(255, 193, 7, 0.2);
+            color: var(--color-yellow);
+        }
+
+        .highest-avg-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .highest-avg-list li {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1em 0;
+            border-bottom: 1px solid var(--border-glass);
+        }
+        .highest-avg-list li:last-child {
+            border-bottom: none;
+        }
+        .list-item-info {
+            display: flex;
+            align-items: center;
+            gap: 1em;
+        }
+        .list-item-rank {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.05);
+            display: grid;
+            place-items: center;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+        .list-item-name {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+        .list-item-grade {
+            font-size: 1.2em;
+            font-weight: 700;
+            color: white;
+        }
+        /* --- END: NEW ADMIN DASHBOARD STYLES --- */
+
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <div class="sidebar-header">
+            OrchestIQ <span>Grader</span>
+        </div>
+        
+        <a id="link-evaluation" class="sidebar-link active" onclick="showPage('page-evaluation'); return false;">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+            New Evaluation
+        </a>
+
+        <a id="link-admin" class="sidebar-link" onclick="showPage('page-admin'); return false;">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+            Admin Dashboard
+        </a>
+
+        <a href="#" class="sidebar-link sidebar-footer" onclick="event.preventDefault(); alert('Logout is not part of this demo.')">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+            Logout
+        </a>
+    </div>
+
+    <div class="main-content">
+    
+        <div id="page-evaluation" class="page-container active-page">
+            <div class="container">
+                <h1>Intelligent Exam Grader</h1>
+
+                <div class="form-card">
+                    <h2>Submit New Answer for Grading</h2>
+                    <br>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="exam-id">Exam ID</label>
+                            <input type="text" id="exam-id" value="CS-101">
+                        </div>
+                        <div class="form-group">
+                            <label for="target-question">Question Text</label>
+                            <input type="text" id="target-question" value="What is the derivative of x^2?">
+                        </div>
+                        <div class="form-group full-width">
+                            <label for="rubric-text">Examiner Rubric</label>
+                            <textarea id="rubric-text">The answer must state '2x'. Full credit for '2x'. Partial credit for '2'. No credit for anything else.</textarea>
+                        </div>
+                        <div class="form-group full-width">
+                            <label for="image-file">Student Answer Sheet (Image)</label>
+                            <div class="drop-zone" id="drop-zone">
+                                <input type="file" id="image-file" accept="image/*">
+                                <span class="drop-zone-text">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                                    <br>Drag and drop image here, or click to browse
+                                </span>
+                                <img src="" alt="Image Preview" class="drop-zone-preview" id="preview-image">
+                            </div>
+                        </div>
+                    </div>
+                    <br>
+                    <button id="evaluate-btn">Begin Evaluation</button>
+                </div>
+
+                <div id="results">
+                    <h3 id="status-heading" style="display:none;">Status</h3>
+                    <div id="status"></div>
+                    <h4 id="ocr-heading" style="display:none;">Extracted Text (from OCR):</h4>
+                    <pre id="ocr-text"></pre>
+                    <div id="evaluation-output" style="display:none;">
+                        <h3>Evaluation Result</h3>
+                        <div class="result-grid">
+                            <div class="grade-badge">
+                                <span>Grade</span>
+                                <strong id="final-grade">0</strong>
+                            </div>
+                            <div class="result-details">
+                                <div class="result-card">
+                                    <strong>Feedback for Student:</strong>
+                                    <p id="feedback-text"></p>
+                                </div>
+                                <div class="result-card justification">
+                                    <strong>Grading Justification:</strong>
+                                    <p id="justification-text"></p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div> <div id="page-admin" class="page-container">
+            <h1>Admin Dashboard</h1>
+            
+            <div class="dashboard-grid">
+                <div class="stat-card">
+                    <div class="stat-card-info">
+                        <h3>Total Submissions</h3>
+                        <p>1,247</p>
+                    </div>
+                    <div class="stat-card-icon blue">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card-info">
+                        <h3>Active Students</h3>
+                        <p>342</p>
+                    </div>
+                    <div class="stat-card-icon green">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card-info">
+                        <h3>Avg. Grade</h3>
+                        <p>82%</p>
+                    </div>
+                    <div class="stat-card-icon yellow">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"></line><line x1="18" y1="20" x2="18" y2="4"></line><line x1="6" y1="20" x2="6" y2="16"></line></svg>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card-info">
+                        <h3>Pass Rate</h3>
+                        <p>87%</p>
+                    </div>
+                    <div class="stat-card-icon green">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 11.08 12 21.08 2 11.08"></polyline><path d="M7 11.08V5a3 3 0 0 1 3-3h4a3 3 0 0 1 3 3v6.08"></path></svg>
+                    </div>
+                </div>
+            </div>
+
+            <div class="dashboard-grid-charts">
+                <div class="chart-card">
+                    <h3>Class Averages</h3>
+                    <div class="chart-container">
+                        <canvas id="barChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-card">
+                    <h3>Grade Distribution</h3>
+                    <div class="chart-container">
+                        <canvas id="pieChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="dashboard-grid-charts" style="margin-top: 1.5em; grid-template-columns: 2fr 1fr;">
+                <div class="table-card">
+                    <h3>Recent Submissions</h3>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Task ID</th>
+                                <th>Exam ID</th>
+                                <th>Grade</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>a7b3c9d1</td>
+                                <td>CS-101</td>
+                                <td>85</td>
+                                <td><span class="status-badge complete">COMPLETE</span></td>
+                            </tr>
+                            <tr>
+                                <td>e4f2g8h5</td>
+                                <td>CS-202</td>
+                                <td>92</td>
+                                <td><span class="status-badge complete">COMPLETE</span></td>
+                            </tr>
+                            <tr>
+                                <td>i1j6k3l9</td>
+                                <td>CS-301</td>
+                                <td>78</td>
+                                <td><span class="status-badge review">MANUAL_REVIEW</span></td>
+                            </tr>
+                            <tr>
+                                <td>m2n7o4p8</td>
+                                <td>CS-101</td>
+                                <td>88</td>
+                                <td><span class="status-badge complete">COMPLETE</span></td>
+                            </tr>
+                            <tr>
+                                <td>q5r1s6t2</td>
+                                <td>CS-201</td>
+                                <td>73</td>
+                                <td><span class="status-badge complete">COMPLETE</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="list-card">
+                    <h3>Highest Averages</h3>
+                    <ul class="highest-avg-list">
+                        <li>
+                            <div class="list-item-info">
+                                <span class="list-item-rank">1</span>
+                                <span class="list-item-name">Advanced Algorithms</span>
+                            </div>
+                            <span class="list-item-grade">92%</span>
+                        </li>
+                        <li>
+                            <div class="list-item-info">
+                                <span class="list-item-rank">2</span>
+                                <span class="list-item-name">Database Systems</span>
+                            </div>
+                            <span class="list-item-grade">88%</span>
+                        </li>
+                        <li>
+                            <div class="list-item-info">
+                                <span class="list-item-rank">3</span>
+                                <span class="list-item-name">Data Structures</span>
+                            </div>
+                            <span class="list-item-grade">85%</span>
+                        </li>
+                        <li>
+                            <div class="list-item-info">
+                                <span class="list-item-rank">4</span>
+                                <span class="list-item-name">Operating Systems</span>
+                            </div>
+                            <span class="list-item-grade">82%</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+        </div> </div> <script>
+        // --- START: NEW PAGE NAVIGATION LOGIC ---
+        const pageEvaluation = document.getElementById('page-evaluation');
+        const pageAdmin = document.getElementById('page-admin');
+        const linkEvaluation = document.getElementById('link-evaluation');
+        const linkAdmin = document.getElementById('link-admin');
+        let chartsInitialized = false;
+
+        function showPage(pageId) {
+            // Hide all pages
+            pageEvaluation.style.display = 'none';
+            pageAdmin.style.display = 'none';
+            
+            // Deactivate all links
+            linkEvaluation.classList.remove('active');
+            linkAdmin.classList.remove('active');
+
+            // Show the target page and activate the target link
+            if (pageId === 'page-evaluation') {
+                pageEvaluation.style.display = 'block';
+                linkEvaluation.classList.add('active');
+            } else if (pageId === 'page-admin') {
+                pageAdmin.style.display = 'block';
+                linkAdmin.classList.add('active');
+                
+                // Initialize charts only once
+                if (!chartsInitialized) {
+                    initCharts();
+                    chartsInitialized = true;
+                }
+            }
+        }
+        // --- END: NEW PAGE NAVIGATION LOGIC ---
+
+
+        // --- START: ORIGINAL EVALUATION SCRIPT (Unchanged) ---
+        const evalButton = document.getElementById('evaluate-btn');
+        const examIdInput = document.getElementById('exam-id');
+        const questionInput = document.getElementById('target-question');
+        const rubricInput = document.getElementById('rubric-text');
+        
+        const fileInput = document.getElementById('image-file');
+        const dropZone = document.getElementById('drop-zone');
+        const dropZoneText = document.querySelector('.drop-zone-text');
+        const previewImage = document.getElementById('preview-image');
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length > 0) {
+                handleFile(fileInput.files[0]);
+            }
+        });
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('hover');
+        });
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('hover');
+        });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('hover');
+            const file = e.dataTransfer.files[0];
+            if (file && file.type.startsWith('image/')) {
+                fileInput.files = e.dataTransfer.files; 
+                handleFile(file);
+            }
+        });
+
+        function handleFile(file) {
+            const reader = new FileReader();
+            reader.onload = () => {
+                previewImage.src = reader.result;
+                previewImage.style.display = 'block';
+                dropZoneText.style.display = 'none';
+            }
+            reader.readAsDataURL(file);
+        }
+        
+        const statusHeading = document.getElementById('status-heading');
+        const statusDiv = document.getElementById('status');
+        const ocrHeading = document.getElementById('ocr-heading');
+        const ocrText = document.getElementById('ocr-text');
+        
+        const evaluationOutput = document.getElementById('evaluation-output');
+        const finalGradeEl = document.getElementById('final-grade');
+        const feedbackTextEl = document.getElementById('feedback-text');
+        const justificationTextEl = document.getElementById('justification-text');
+
+        const API_URL = 'http://localhost:8000';
+        let pollingInterval;
+
+        evalButton.addEventListener('click', handleEvaluateClick);
+
+        async function handleEvaluateClick() {
+            const file = fileInput.files[0];
+            const examId = examIdInput.value;
+            const targetQuestion = questionInput.value;
+            const rubricText = rubricInput.value;
+
+            if (!file || !examId || !targetQuestion || !rubricText) {
+                alert("Please fill out all fields and select an image file.");
+                return;
+            }
+
+            evalButton.disabled = true;
+            evalButton.innerText = "Processing...";
+            statusHeading.style.display = 'block';
+            statusDiv.innerText = "1. Uploading and converting image...";
+            
+            ocrHeading.style.display = 'none';
+            ocrText.innerText = "";
+            evaluationOutput.style.display = 'none';
+
+            try {
+                const imageB64 = await toBase64(file);
+                const payload = {
+                    exam_id: examId,
+                    rubric_text: rubricText,
+                    image_b64: imageB64.split(',')[1],
+                    target_question: targetQuestion
+                };
+
+                statusDiv.innerText = "2. Submitting job to orchestrator...";
+                const response = await fetch(`${API_URL}/v1/evaluate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API Error: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                const taskId = data.task_id;
+
+                statusDiv.innerText = `3. Job queued (Task ID: ${taskId}). Waiting for agents...`;
+                pollForResult(taskId);
+
+            } catch (error) {
+                console.error("Evaluation failed:", error);
+                statusDiv.innerText = `Error: ${error.message}`;
+                evalButton.disabled = false;
+                evalButton.innerText = "Begin Evaluation";
+            }
+        }
+
+        function pollForResult(taskId) {
+            pollingInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`${API_URL}/v1/status/${taskId}`);
+                    const data = await response.json();
+                    const jobStatus = data.status;
+                    statusDiv.innerText = `Polling... Current Step: ${data.step}`;
+
+                    if (jobStatus === "COMPLETE" || jobStatus === "MANUAL_REVIEW" || jobStatus === "ERROR") {
+                        clearInterval(pollingInterval);
+                        statusDiv.innerText = `Evaluation Finished! Status: ${jobStatus}`;
+
+                        const ocrResult = data.extracted_text;
+                        if (ocrResult) {
+                            ocrHeading.style.display = 'block';
+                            ocrText.innerText = ocrResult;
+                        }
+
+                        const result = data.result;
+                        if (result) {
+                            finalGradeEl.innerText = result.final_grade;
+                            feedbackTextEl.innerText = result.feedback;
+                            justificationTextEl.innerText = result.justification;
+                            
+                            const gradeBadge = document.querySelector('.grade-badge');
+                            if (jobStatus === "MANUAL_REVIEW" || result.final_grade === 0) {
+                                gradeBadge.style.background = "var(--color-yellow)";
+                                gradeBadge.style.boxShadow = "0 0 20px rgba(255, 193, 7, 0.5)";
+                            } else {
+                                gradeBadge.style.background = "var(--color-green)";
+                                gradeBadge.style.boxShadow = "0 0 20px rgba(40, 167, 69, 0.5)";
+                            }
+                            evaluationOutput.style.display = 'block';
+                        }
+                        
+                        evalButton.disabled = false;
+                        evalButton.innerText = "Begin Evaluation";
+                    }
+                } catch (error) {
+                    console.error("Polling error:", error);
+                    statusDiv.innerText = "Error while polling for status.";
+                    clearInterval(pollingInterval);
+                    evalButton.disabled = false;
+                    evalButton.innerText = "Begin Evaluation";
+                }
+            }, 2000);
+        }
+
+        function toBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = error => reject(error);
+            });
+        }
+        // --- END: ORIGINAL EVALUATION SCRIPT ---
+
+
+        // --- START: NEW ADMIN DASHBOARD CHARTS ---
+        // Set global chart colors
+        Chart.defaults.color = 'rgba(255, 255, 255, 0.7)';
+        Chart.defaults.borderColor = 'rgba(255, 255, 255, 0.1)';
+
+        function initCharts() {
+            // 1. Bar Chart (Class Averages)
+            const barCtx = document.getElementById('barChart').getContext('2d');
+            new Chart(barCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['CS-101', 'CS-102', 'CS-201', 'CS-202', 'CS-301'],
+                    datasets: [{
+                        label: 'Average Score',
+                        data: [82, 88, 79, 91, 85],
+                        backgroundColor: [
+                            'rgba(111, 66, 193, 0.6)', // purple
+                            'rgba(0, 123, 255, 0.6)', // blue
+                            'rgba(111, 66, 193, 0.6)',
+                            'rgba(0, 123, 255, 0.6)',
+                            'rgba(255, 255, 255, 0.8)'  // white/highlight
+                        ],
+                        borderColor: [
+                            'rgba(111, 66, 193, 1)',
+                            'rgba(0, 123, 255, 1)',
+                            'rgba(111, 66, 193, 1)',
+                            'rgba(0, 123, 255, 1)',
+                            'rgba(255, 255, 255, 1)'
+                        ],
+                        borderWidth: 1,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            }
+                        }
+                    }
+                }
+            });
+
+            // 2. Pie Chart (Grade Distribution)
+            const pieCtx = document.getElementById('pieChart').getContext('2d');
+            new Chart(pieCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['A (90-100)', 'B (80-89)', 'C (70-79)', 'D (60-69)', 'F (0-59)'],
+                    datasets: [{
+                        label: 'Grade Distribution',
+                        data: [25, 35, 20, 12, 8],
+                        backgroundColor: [
+                            'rgba(40, 167, 69, 0.7)',  // Green
+                            'rgba(0, 123, 255, 0.7)',  // Blue
+                            'rgba(255, 193, 7, 0.7)', // Yellow
+                            'rgba(255, 136, 0, 0.7)', // Orange
+                            'rgba(220, 53, 69, 0.7)'  // Red
+                        ],
+                        borderColor: 'rgba(15, 16, 26, 0.5)', // bg-dark
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                padding: 15
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        // --- END: NEW ADMIN DASHBOARD CHARTS ---
+    </script>
+</body>
+</html>

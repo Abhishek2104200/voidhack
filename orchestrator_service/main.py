@@ -5,6 +5,7 @@ import time
 import requests # <-- New import
 import threading # <-- New import for background consumer
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import sys
 
@@ -19,6 +20,16 @@ class EvaluationRequest(BaseModel):
     target_question: str
 
 app = FastAPI(title="Composable Orchestrator")
+# --- Add CORS Middleware ---
+# This allows your webpage (on port 8080) to call the API (on port 8000)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:8080"],  # The origin of your index.html
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allow all headers
+)
+# ---------------------------
 OPA_URL = "http://policy_engine:8181/v1/data/policy/eval" # Use Docker service name
 
 # --- RabbitMQ Connection Setup (Robust) ---
@@ -83,11 +94,23 @@ def consume_llm_results():
             # Call OPA to get the final decision
             final_decision = call_opa_policy(llm_verdict)
 
+            # --- START OF MODIFICATION ---
+            # Extract the vision verdict's data *before* storing the final decision
+            # This data is nested inside the message from the LLM agent
+            vision_verdict = llm_verdict.get("vision_verdict", {})
+            vision_verdict_data = vision_verdict.get("verdict_data", {})
+            extracted_text = vision_verdict_data.get("extracted_text", "Could not find extracted text in log")
+            # --- END OF MODIFICATION ---
+
             # Update the central task log
             if task_id in TASK_AUDIT_LOG:
                 TASK_AUDIT_LOG[task_id]["status"] = final_decision.get("status", "ERROR")
                 TASK_AUDIT_LOG[task_id]["step"] = "Consensus Complete"
                 TASK_AUDIT_LOG[task_id]["result"] = final_decision # Store the whole decision
+                
+                # --- ADD THIS LINE TO SAVE THE TEXT ---
+                TASK_AUDIT_LOG[task_id]["extracted_text"] = extracted_text 
+                
                 print(f" [C] Updated task log for {task_id} with status: {final_decision.get('status')}")
             else:
                 print(f" [!] Warning: Received result for unknown task_id {task_id}")
@@ -170,7 +193,8 @@ def start_evaluation(request: EvaluationRequest):
         raise HTTPException(status_code=503, detail="Messaging service unavailable.")
 
     # Log ONLY AFTER successful publish attempt
-    TASK_AUDIT_LOG[task_id] = {"status": "PENDING", "step": "Task Queued", "result": None}
+    # We add the "extracted_text" key here as None to ensure it always exists
+    TASK_AUDIT_LOG[task_id] = {"status": "PENDING", "step": "Task Queued", "result": None, "extracted_text": None}
     print(f" [x] Task {task_id} published successfully.")
     return {"message": "Evaluation started and queued.", "task_id": task_id}
 

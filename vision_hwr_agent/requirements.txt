@@ -1,5 +1,6 @@
-# /composable-orchestrator/vision_hwr_agent/requirements.txt
-
 pika
+requests
 pillow
 pytesseract
+opencv-python
+numpy
