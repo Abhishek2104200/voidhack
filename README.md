@@ -87,3 +87,4 @@ Standard microservices layout with separate folders for each component:
 │   └── agent.py        # OCR.space integration, consumes task, produces Vision verdict
 ├── docker-compose.yml  # Defines all 5 services: Orchestrator, RabbitMQ, OPA, Vision, LLM
 └── index.html          # Simple front-end for task submission and status polling
+//update
