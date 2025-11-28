@@ -6,7 +6,7 @@
 
 ## ✨ Novelty & Key Features
 
-This project's core innovation lies in its **Composable Orchestrator and Consensus** approach:
+This project's core innovation lies in its **Composable Orchestrator and Consensus** approach :
 
 * **Modular Architecture:** The system is split into independent microservices (Orchestrator, Vision, LLM, OPA) communicating asynchronously via **RabbitMQ**. This ensures reliability and allows any component to be updated or scaled without affecting the others.
 * **Vision-to-LLM Chain:** It first uses a **Vision Agent** (OCR/HWR) to convert the handwritten image to text, and then passes the result and confidence score to the **LLM Agent**.
